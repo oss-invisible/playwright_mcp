@@ -6,9 +6,26 @@ on:
     branches: [main]
 
 jobs:
+  # Every commit this event makes public must carry a GitHub noreply address.
+  # Judged by the core, called from main; pushes to branches without a pull
+  # request and to tags go through noreply-identity.yml.
+  noreply-identity:
+    uses: oss-invisible/core/.github/workflows/noreply-identity.yml@main
+
   gate:
+    needs: noreply-identity
+    # A job whose needs failed is skipped, and a skipped required check counts
+    # as green: always() makes it run, and the first step refuses.
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: the noreply identity check passed
+        run: |
+          echo "noreply-identity: ${{ needs.noreply-identity.result }}"
+          if [ "${{ needs.noreply-identity.result }}" != "success" ]; then
+            echo "a commit or tag carries an address that is not a GitHub noreply one"
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
