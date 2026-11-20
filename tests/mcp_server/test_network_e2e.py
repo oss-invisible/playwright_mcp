@@ -29,6 +29,13 @@ def success(result):
 def site():
     observed = {}
     auth_codes = ",".join(str(ord(char)) for char in AUTHORIZATION)
+    # ⛔ THE PAGE MUST NOT CARRY THE REQUEST BODY IN ITS OWN SOURCE. The document
+    # is a response, and a response body is returned on request, so a page that
+    # spelled the POST out would put those very words in the answer by way of
+    # itself and the guard in `call` below would read it as a leaked request
+    # body. Built from character codes, like the Authorization value, the only
+    # place the words exist is the request.
+    body_codes = ",".join(str(ord(char)) for char in json.dumps(POST))
     page = ("""
 <!doctype html><title>Network fixture</title>
 <a id="popup" target="_blank" href="/popup">Open site page</a>
@@ -37,13 +44,13 @@ fetch('/EventOccurred', {
   method: 'POST',
   headers: {'Content-Type': 'application/json',
             'Authorization': String.fromCharCode(%s)},
-  body: JSON.stringify(%s)
+  body: String.fromCharCode(%s)
 });
 const xhr = new XMLHttpRequest();
 xhr.open('GET', '/Recalc');
 xhr.send();
 </script>
-""" % (auth_codes, json.dumps(POST))).encode()
+""" % (auth_codes, body_codes)).encode()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def reply(self, status, content_type, body, *, cookie=False):

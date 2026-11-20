@@ -394,6 +394,27 @@ async def test_a_request_body_never_reaches_the_answer(ask):
     assert capture.entries()["stored_body_bytes"] <= len(b'{"ok":true}')
 
 
+@pytest.mark.parametrize("resource_type", ["xhr", "fetch", "document", "other"])
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+async def test_the_words_of_a_request_body_are_in_no_field_but_a_response_body(resource_type, method):
+    """A page may well answer with the words it was sent, or carry them in its
+    own source (the e2e page once did): that is a RESPONSE body, returned on
+    request and marked untrusted. What must hold is that the request side never
+    puts them anywhere else in an entry, on any kind of request."""
+    capture, context = recorder()
+    request = Request(method=method, resource_type=resource_type,
+                      body=("password=%s" % SECRET).encode(),
+                      headers={"Content-Type": "application/x-www-form-urlencoded"})
+    request.reply.raw = b"echo " + SECRET.encode()
+    context.emit("request", request)
+    await finish(capture, context, request)
+    for entry in capture.entries(include_bodies=True, include_headers=True,
+                                 include_preflight=True)["entries"]:
+        rest = {k: v for k, v in entry.items() if k != "response_body"}
+        assert SECRET not in json.dumps(rest), rest
+    assert SECRET not in json.dumps(capture.entries()), "without include_bodies, nowhere"
+
+
 async def test_a_request_body_never_reaches_the_tool_answer(monkeypatch):
     work = Work("network-test")
     monkeypatch.setattr(server, "work", work)
