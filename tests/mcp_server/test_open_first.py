@@ -112,6 +112,7 @@ EVERY_TOOL = [
     ("browser_watch", {}),
     ("browser_click", {"selector": "#go"}),
     ("browser_click_at", {"x": 1.0, "y": 1.0}),
+    ("browser_drag", {"strokes": [[[1.0, 1.0], [2.0, 2.0]]]}),
     ("browser_type", {"selector": "#q", "text": "hi"}),
     ("browser_select_option", {"selector": "#s", "value": "a"}),
     ("browser_press_key", {"key": "Enter"}),

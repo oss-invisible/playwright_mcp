@@ -264,7 +264,7 @@ EXPECTED_TOOLS = {
     "browser_navigate", "browser_read_text",
     "browser_snapshot", "browser_read_html", "browser_take_screenshot",
     "browser_watch",
-    "browser_click", "browser_click_at", "browser_type", "browser_press_key",
+    "browser_click", "browser_click_at", "browser_drag", "browser_type", "browser_press_key",
     "browser_evaluate", "browser_select_option", "browser_upload_files",
 }
 
@@ -516,7 +516,7 @@ def _ids(snapshot):
 def test_the_live_server_exposes_exactly_the_documented_tools(browser):
     """The tool set the agent converts is the one the README promises.
 
-    Known-bad: rename `browser_read_text` upstream, or add a nineteenth tool,
+    Known-bad: rename `browser_read_text` upstream, or add another tool,
     and this fails. It matters because the system prompt in `agent.py` names
     tools in prose ("Inspect pages with browser_read_text / browser_snapshot"),
     and prose does not break when a name moves.
