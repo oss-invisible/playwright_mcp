@@ -21,12 +21,12 @@ than a characters-per-token rule of thumb:
 | | |
 |---|---|
 | Tools exposed | **18** |
-| Description characters | 9,681 |
-| Tokens, descriptions alone | 2,231 |
-| Tokens, complete definitions resent every turn | **3,706** |
-| Median tokens per tool | 195 |
+| Description characters | 10,043 |
+| Tokens, descriptions alone | 2,321 |
+| Tokens, complete definitions resent every turn | **3,934** |
+| Median tokens per tool | 208 |
 
-A forty-turn browsing session therefore spends on the order of **148,000
+A forty-turn browsing session therefore spends on the order of **157,000
 tokens** restating what the tools are, before counting a single page of content
 or a word of the model's reasoning. Two servers of that size, and it doubles.
 
@@ -91,7 +91,7 @@ measurements, including the one that reverses on a long page.
 **Is there a hard limit on MCP tools?** Not in the protocol. Clients impose
 their own caps, and the model's ability to choose degrades before any cap.
 
-**How much context do MCP tools use?** Ours: 3,706 tokens on every turn, for 18
+**How much context do MCP tools use?** Ours: 3,934 tokens on every turn, for 18
 tools. Yours scales with description length and argument schemas, not just
 count.
 
@@ -113,7 +113,7 @@ of four decisions is exactly this budget.
 
 ## Sources
 
-- This project's own MCP server, enumerated through its tool registry on 2026-11-20: 18 tools, 9,681 characters of description, 3,706 tokens for the complete definitions, median 195 tokens per tool. Tokens counted with `tiktoken` (`o200k_base`), not estimated from character count.
+- This project's own MCP server, enumerated through its tool registry on 2026-11-20: 18 tools, 10,043 characters of description, 3,934 tokens for the complete definitions, median 208 tokens per tool. Tokens counted with `tiktoken` (`o200k_base`), not estimated from character count.
 - [The Model Context Protocol documentation](https://modelcontextprotocol.io/docs/learn/server-concepts), retrieved 2026-09-11, for `tools/list` and the schema-defined shape of a tool.
 
 ---
