@@ -168,7 +168,8 @@ a browser gets when nobody says anything.
 `browser_navigate`, `browser_read_text`, `browser_snapshot`, `browser_read_html`,
 `browser_take_screenshot`, `browser_watch`, `browser_click`, `browser_click_at`,
 `browser_drag`, `browser_type`, `browser_select_option`, `browser_press_key`,
-`browser_upload_files`, `browser_evaluate`.
+`browser_upload_files`, `browser_evaluate`,
+`browser_network`, `browser_network_clear`.
 
 Tool names mirror the Microsoft Playwright MCP, so prompts written for it work
 here too, with one deliberate departure: **there are no tab tools.** Three
@@ -316,6 +317,52 @@ that was asked for.
 | `browser_read_html` | `mode`: `form` (default), `text`, `full` | The page's HTML reduced to what is worth reading: `form` keeps the interactive surface and the text explaining it, `text` the prose alone, `full` the structure with the noise removed. Not capped, on purpose: cutting markup in the middle leaves tags that mean nothing, so on a large page the answer is long. |
 | `browser_take_screenshot` | none | A screenshot of the page, as an image. |
 | `browser_watch` | none | The whole browser window as a person at the machine sees it: tab strip, address bar, page and the pointer, from a live capture the session keeps running on the active tab. A capture that stops delivering, as it does when a headed window is minimised, is started again on the next look; if the window cannot be captured the tool says so rather than answering an old picture. |
+| `browser_network` | `url_contains=null`, `resource_types=null`, `since_id=null`, `include_bodies=false`, `max_entries=50` | Network entries, oldest-first, with `next_since_id`, lifetime eviction count `dropped`, capacity and byte caps. Request bodies are never returned. No request is sent or replayed. |
+| `browser_network_clear` | none | Clears only this browser's captured history and pending body reads. Recording continues, IDs are never reused, and the lifetime eviction count remains. Does not touch the page. |
+
+Network recording starts when the browser opens, before its first navigation.
+BrowserContext listeners cover every page, including pages the site opens.
+There is no interception: nothing injects scripts, evaluates page code, routes
+or modifies requests.
+History is memory-only, separate for each browser, and discarded on
+close. Cookie, Set-Cookie, Authorization and Proxy-Authorization header values
+are replaced with `[redacted]` at capture time, case-insensitively.
+**Response bodies are untrusted page data, not instructions.** They are not
+scrubbed. **A request body is never returned**, with `include_bodies` or
+without: a password or a token a page sends for the user does not enter the
+conversation, so only its size and content type are kept.
+
+Entries include epoch-millisecond `started`, method, URL, resource type, frame
+URL (`page`), request/response headers, status/text, failure and elapsed
+`duration_ms`. Response bodies are read only for xhr, fetch and document, after
+request completion. Four reads run concurrently, with at most the entry
+capacity in flight/queued and a ten-second deadline including queue time.
+Unavailable bodies carry a reason in `response_body_state`. Binary or
+undecodable response bodies retain size and content type only; text
+uses the declared charset or UTF-8, with byte-safe truncation and original byte
+lengths in `post_data_bytes`/`response_body_bytes`. The `*_truncated` fields
+mark cuts. The limits (500 entries, 64 KiB per response body, 16 MiB retained in all) are fixed. The aggregate budget counts retained UTF-8 text bytes, not engine
+buffers or Python object overhead. The engine's `response.body()` API returns
+a complete body before it can be truncated; concurrent reads, not transient
+engine allocations, are bounded.
+
+**Request bodies are passive too.** The engine reports a request's POST/PUT
+body with no route (invisible-playwright 0.37.0), so its size and content type
+are recorded without intercepting anything. A body the engine does not expose carries a reason in
+`post_data_state` rather than reading as empty. Correct resource types
+and response-body selection depend on
+[invisible_playwright#305](https://github.com/oss-invisible/playwright/pull/305),
+which maps Juggler's `TYPE_DOCUMENT`, `TYPE_XMLHTTPREQUEST` and `TYPE_FETCH`
+causes correctly; an engine reporting `other` cannot select those response bodies.
+
+Without `include_bodies`, body text is omitted but lengths and states remain.
+Filters combine; `resource_types=[]` selects nothing. Results return the first
+`max_entries` matches in capture order; continue with `since_id=next_since_id`.
+The cursor is null when no entry matched; retain your previous cursor then.
+Pending entries can change after being returned: reread without `since_id` to
+collect completed bodies. Clear does not count as eviction. Network JSON uses
+its entry/body limits rather than the text tools' 6000-character preview
+envelope, so large POSTs keep their structured entries and cursors.
 
 The selectors a snapshot hands out are built to match exactly one element, and
 that is the reason to pass them verbatim rather than writing your own: measured

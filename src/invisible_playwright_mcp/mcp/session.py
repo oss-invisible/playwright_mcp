@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 from ..quiet import swallow
+from . import network
 
 from invisible_playwright.async_api import InvisiblePlaywright, TargetClosedError
 
@@ -45,6 +46,7 @@ class StealthSession:
         # removed when it closes: Firefox reads a picked file when the page
         # sends it, so they must last exactly as long as the browser does.
         self._kept: list[str] = []
+        self.network = network.Network()
 
     @property
     def seed(self):
@@ -70,6 +72,7 @@ class StealthSession:
         self._ipw = InvisiblePlaywright(**self._kwargs)
         await self._attach(await self._ipw.__aenter__())
         self._arm_choosers()
+        self.network.attach(self._context)
 
     def is_usable(self) -> bool:
         """Whether this object is worth handing out, asked WITHOUT talking to
@@ -282,6 +285,7 @@ class StealthSession:
     # --- the end ----------------------------------------------------------------
 
     async def close(self) -> None:
+        await self.network.close()
         for key in list(self._watch):
             await self._stop_watch(key)
         if self._context is not None:
