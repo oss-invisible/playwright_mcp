@@ -46,8 +46,8 @@ Not once at registration. Every turn.
 
 Enumerated from this project's own browser server on 2026-11-20 and counted
 with a tokenizer rather than a characters-per-token rule of thumb: **18 tools,
-9,681 characters of description, 3,706 tokens on every single turn.** A
-forty-turn session spends around 148,000 tokens restating what the tools are,
+10,043 characters of description, 3,934 tokens on every single turn.** A
+forty-turn session spends around 157,000 tokens restating what the tools are,
 before a page has been read.
 
 Call the same API from your own code and that number is zero. Call it through
@@ -102,7 +102,7 @@ find something and then do something about it, which is the common real case.
 ## The one-line versions
 
 - MCP vs an API: not competitors. MCP is usually a model-facing layer over an
-  API, and it bills you per turn for the discovery it adds - 3,706 tokens on
+  API, and it bills you per turn for the discovery it adds - 3,934 tokens on
   ours, every turn, forever.
 - MCP vs RAG: not competitors. RAG retrieves at scale; MCP acts, and attaches
   known context.
