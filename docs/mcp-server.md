@@ -352,7 +352,7 @@ body with no route (invisible-playwright 0.37.0), so it is recorded like any
 other field. A body the engine does not expose carries a reason in
 `post_data_state` rather than reading as empty. Correct resource types
 and response-body selection depend on
-[invisible_playwright#305](https://github.com/feder-cr/invisible_playwright/pull/305),
+[invisible_playwright#305](https://github.com/oss-invisible/playwright/pull/305),
 which maps Juggler's `TYPE_DOCUMENT`, `TYPE_XMLHTTPREQUEST` and `TYPE_FETCH`
 causes correctly; an engine reporting `other` cannot select those response bodies.
 
