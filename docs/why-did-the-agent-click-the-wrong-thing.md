@@ -56,8 +56,8 @@ one is the right ask, and
 has the trade between the first two rungs with the timings.
 
 Two of the cases on that list have been measured since, and both are worth
-recognising by sight. An element inside an **iframe** is absent from every read
-and the selector spends a full fifteen seconds failing:
+recognising by sight. An element inside an **iframe** is in the snapshot with a `frame`, and a selector
+given without it spends a full fifteen seconds failing:
 [an agent and an iframe](an-agent-and-an-iframe.md). An element inside a **shadow
 root** is equally absent from the reads, and yet a click by selector reaches it,
 even a closed one:

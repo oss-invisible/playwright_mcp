@@ -78,8 +78,8 @@ after filling it, which is in
 Worth naming because it defeats both routes: a dropdown rendered inside a shadow
 root or an iframe. The click by selector still works into a shadow root, measured
 on
-[its own page](shadow-dom-and-an-ai-agent.md); inside a frame it does not, and
-you are on coordinates, per
+[its own page](shadow-dom-and-an-ai-agent.md); inside a frame it works with the `frame`
+the snapshot lists, per
 [an agent and an iframe](an-agent-and-an-iframe.md).
 
 If a dropdown refuses both the select call and the two-click route while being

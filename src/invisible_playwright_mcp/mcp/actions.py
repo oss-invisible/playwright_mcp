@@ -21,6 +21,7 @@ import re
 import shutil
 import stat
 import tempfile
+from dataclasses import dataclass
 from typing import Optional
 
 from . import clean, process
@@ -85,7 +86,7 @@ async def navigate(session, url: str, wait_until: str = "domcontentloaded") -> s
     return f"navigated to {response.url} (HTTP {response.status})"
 
 
-async def read_text(session, selector: str = "body") -> str:
+async def read_text(session, selector: str = "body", frame=None) -> str:
     """The visible text of an element, whole.
 
     ⛔ THE SELECTOR IS RESOLVED BY THE ENGINE, AS EVERY OTHER TOOL RESOLVES IT.
@@ -107,11 +108,44 @@ async def read_text(session, selector: str = "body") -> str:
     place. It answers NOW: nothing matching is still "(no element matches ...)"
     at once, not a wait to the timeout, because the caller deciding whether to
     look again is the agent, which has just been told what is there.
+
+    ⛔ THE FRAMES ARE READ WITH THE PAGE, FROM THE SAME WALK AS THE SNAPSHOT
+    (`documents`). The selector is looked for in the top-level document and in
+    every iframe under it; the top document's text comes first, unmarked, and
+    each frame that has a match follows under a line that names it. A frame the
+    selector finds nothing in is left out, so a narrow selector costs nothing
+    for the frames, and one that cannot be read is named as such, never left
+    out. Text needs no way into a frame, so one the snapshot calls
+    `unaddressable` is read here too. `frame` (a chain from browser_snapshot) reads inside that one frame
+    alone, as it does for every selector tool.
     """
-    texts = await session.page().locator(selector).first.all_inner_texts()
-    if not texts:
-        return f"(no element matches {selector!r})"
-    return texts[0]
+    if frame:
+        found = await _text_in(await frame_target(session, frame), selector)
+        return found if found is not None else f"(no element matches {selector!r} in that frame)"
+    top, *inside = await documents(session)
+    answer = await _text_in(top.target, selector)
+    sections = []
+    for doc in inside:
+        if doc.state != "unreadable":   # text needs no way in, only the frame
+            try:
+                text = await _text_in(doc.target, selector)
+            except Exception:  # noqa: BLE001 - the frame went away or cannot be read
+                doc.state = "unreadable"
+            else:
+                if text is not None:
+                    sections.append("--- %s ---\n%s" % (doc.label(), text))
+                continue
+        sections.append("--- %s: present but %s, not read ---" % (doc.label(), doc.state))
+    if not sections:
+        return answer if answer is not None else f"(no element matches {selector!r})"
+    return "\n\n".join(([answer] if answer is not None else []) + sections)
+
+
+async def _text_in(target, selector: str):
+    """The text of the first element matching `selector` in one document, or
+    None when nothing matches there."""
+    texts = await target.locator(selector).first.all_inner_texts()
+    return texts[0] if texts else None
 
 
 #: Where an element sits, as a string that names it and nothing else: its
@@ -204,7 +238,7 @@ FRAME_DEPTH = 4
 #: elements inside can be given `at` coordinates that browser_click_at takes.
 #:
 #: ⛔ THE SELECTOR IS CHECKED IN THE PARENT'S LIGHT DOM ONLY. An iframe inside
-#: a shadow root gets none: `_frame_target` resolves through the engine, which
+#: a shadow root gets none: `frame_target` resolves through the engine, which
 #: pierces shadow roots, and a selector unique in one place and not the other
 #: would name a different frame. One that cannot be checked is not handed out.
 FRAME_INFO_JS = """(el) => {
@@ -297,14 +331,60 @@ async def _read(target, expression):
     return await (read or target.evaluate)(expression)
 
 
-async def _snapshot_frames(parent, chain, offset, out, frames) -> None:
-    """Append the controls of every painted child frame of `parent`, each
-    tagged with the `frame` chain that reaches it and its frame's origin.
+@dataclass
+class Document:
+    """One document of the page: the top-level one, or an iframe's.
 
-    `at` is moved into the top-level viewport, so browser_click_at takes it as
-    it takes any other; `frame_at` keeps the frame's own coordinates, which
-    page script inside the frame computes. A frame's URL is not reported: an
-    embedded widget's URL commonly carries its session token in the query."""
+    ⛔ THIS IS THE ONE WAY THE PAGE IS WALKED. `documents` returns every
+    document a tool can read, each with the `frame` chain that reaches it, its
+    origin, where its content box starts in the top viewport, and whether it
+    could be read. browser_snapshot, browser_read_text and the frame a selector
+    tool is given all come from it, so what one reports is what the others
+    accept, and a new tool that reads a page reads it here. Before this the
+    snapshot walked the child frames by itself, read_text knew only the top
+    document, and each told a frame it could not read in its own way."""
+    target: object                      # the page, or a Frame: what a tool acts on
+    chain: list | None = None           # selectors reaching it; [] top; None: no way in
+    origin: str | None = None
+    offset: tuple = (0, 0)              # its content box in the top-level viewport
+    state: str = "readable"             # or "unreadable", or "unaddressable"
+    top: bool = False
+
+    def entry(self) -> dict:
+        """What browser_snapshot lists for a frame: by origin only, because an
+        embedded widget's URL commonly carries its session token in the query."""
+        out = {}
+        if self.origin is not None or self.state == "readable":
+            out["origin"] = self.origin
+        if self.chain is not None:
+            out["frame"] = self.chain
+        if self.state != "readable":
+            out[self.state] = True
+        return out
+
+    def label(self) -> str:
+        """The line that names a frame in a text a person or a model reads."""
+        name = " > ".join(self.chain) if self.chain else "(no selector reaches it)"
+        return "frame %s [%s]" % (name, self.origin or "origin unknown")
+
+
+async def documents(session) -> list[Document]:
+    """The top-level document, then every painted iframe under it, nested ones
+    included to FRAME_DEPTH, in document order.
+
+    A frame that cannot be read is in the list with a `state` that says so and
+    is never dropped: `unreadable` (detached, sandboxed, or not answering),
+    `unaddressable` (no selector reaches it from its parent, so no tool could
+    act inside it). A frame that is not painted is not listed."""
+    page = session.page()
+    found = [Document(page, [], None, (0, 0), top=True)]
+    main = getattr(page, "main_frame", None)
+    if main is not None:
+        await _walk(main, [], (0, 0), found)
+    return found
+
+
+async def _walk(parent, chain, offset, found) -> None:
     if len(chain) >= FRAME_DEPTH:
         return
     for child in parent.child_frames:
@@ -316,42 +396,37 @@ async def _snapshot_frames(parent, chain, offset, out, frames) -> None:
                 with swallow("a handle the page already dropped needs no release"):
                     await element.dispose()
         except Exception:  # noqa: BLE001 - one frame must not cost the page
+            # The frame went away under the walk, or cannot be asked about.
+            found.append(Document(child, None, state="unreadable"))
             continue
         if not isinstance(info, dict) or not info.get("shown"):
             continue
+        origin = None
         try:
             origin = await _read(child, "() => location.origin")
         except Exception:  # noqa: BLE001
-            origin = None
+            state = "unreadable"
+        else:
+            state = "readable"
         selector = info.get("selector")
-        entry = {"origin": origin}
         if not selector:
             # Listed, so a caller sees the frame is there, but with no way in:
-            # its controls are not reported, because nothing could act on them.
-            entry["unaddressable"] = True
-            frames.append(entry)
+            # nothing could act on what is inside it.
+            found.append(Document(child, None, origin, state="unaddressable"))
             continue
         here = chain + [selector]
-        entry["frame"] = here
-        frames.append(entry)
         dx, dy = offset[0] + info["left"], offset[1] + info["top"]
-        try:
-            sub = await _read(child, SNAPSHOT_JS)
-            elements = sub.get("interactive_elements", [])
-            await _resolve_nth(child, elements)
-        except Exception:  # noqa: BLE001
-            entry["unreadable"] = True
-            continue
-        if sub.get("unmeasurable"):
-            entry["unmeasurable"] = sub["unmeasurable"]
-        for e in elements:
-            e["frame"] = here
-            e["frame_origin"] = origin
-            if isinstance(e.get("at"), list) and len(e["at"]) == 2:
-                e["frame_at"] = e["at"]
-                e["at"] = [round(e["at"][0] + dx), round(e["at"][1] + dy)]
-            out.append(e)
-        await _snapshot_frames(child, here, (dx, dy), out, frames)
+        found.append(Document(child, here, origin, (dx, dy), state))
+        if state == "readable":
+            await _walk(child, here, (dx, dy), found)
+
+
+async def _snapshot_document(target) -> dict:
+    """The snapshot of one document, with its ambiguous selectors numbered by
+    the engine. The top-level document and a frame are read the same way."""
+    d = await _read(target, SNAPSHOT_JS)
+    await _resolve_nth(target, d.get("interactive_elements", []))
+    return d
 
 
 #: ⛔ THE SELECTOR COMES FROM `clean.py` AND IS NOT WRITTEN HERE. It was a
@@ -659,21 +734,42 @@ async def snapshot(session) -> str:
     count - keeps the answer about the page rather than about its longest
     dropdown.
     """
-    page = session.page()
     # ⛔ `evaluate_read`, NOT `evaluate`: the snapshot is a read without
     # effects, and a page that navigates under it is read again on the page
     # that replaced it. `evaluate` sends the code once and raises Playwright's
     # navigation error, which is right for the model's code (`evaluate` below)
     # and wrong for a read right after `browser_navigate` on a page that
-    # replaces itself (invisible-playwright 0.35.2, [B285]).
-    d = await page.evaluate_read(SNAPSHOT_JS)
-    await _resolve_nth(page, d.get("interactive_elements", []))
-    # Controls inside iframes, cross-origin ones included: the engine reads
-    # each frame in its own document, which page script in the parent cannot.
+    # replaces itself (invisible-playwright 0.35.2, [B285]). `_read` is that
+    # choice, made once for the page and for every frame.
+    #
+    # The top-level document, then every frame `documents` lists, each read the
+    # same way: the engine reads each frame in its own document, which page
+    # script in the parent cannot, cross-origin ones included.
+    top, *inside = await documents(session)
+    d = await _snapshot_document(top.target)
     frames: list = []
-    main = getattr(page, "main_frame", None)
-    if main is not None:
-        await _snapshot_frames(main, [], (0, 0), d.setdefault("interactive_elements", []), frames)
+    for doc in inside:
+        entry = doc.entry()
+        frames.append(entry)
+        if doc.state != "readable":
+            continue
+        try:
+            sub = await _snapshot_document(doc.target)
+        except Exception:  # noqa: BLE001 - one frame must not cost the page
+            entry["unreadable"] = True
+            continue
+        if sub.get("unmeasurable"):
+            entry["unmeasurable"] = sub["unmeasurable"]
+        for e in sub.get("interactive_elements", []):
+            e["frame"] = doc.chain
+            e["frame_origin"] = doc.origin
+            if isinstance(e.get("at"), list) and len(e["at"]) == 2:
+                # `at` is moved into the top-level viewport, so browser_click_at
+                # takes it as it takes any other; `frame_at` keeps the frame's
+                # own coordinates, which page script inside the frame computes.
+                e["frame_at"] = e["at"]
+                e["at"] = [round(e["at"][0] + doc.offset[0]), round(e["at"][1] + doc.offset[1])]
+            d.setdefault("interactive_elements", []).append(e)
     if frames:
         d["frames"] = frames
     return json.dumps(d)
@@ -1478,7 +1574,7 @@ async def _opener(page, selector: str, target: dict) -> str:
     return css if found["of"] == 1 else ":nth-match(%s, %d)" % (css, found["nth"])
 
 
-async def _open_chooser(session, opener: str):
+async def _open_chooser(session, opener: str, on=None):
     """Click what opens the chooser, with the real pointer, and return it.
 
     The wait for the chooser starts with the click and is not bounded by it:
@@ -1486,10 +1582,11 @@ async def _open_chooser(session, opener: str):
     action timeout after the click has landed is one the click does not open.
     """
     page = session.page()
+    where = on if on is not None else page   # the page, or the frame the opener is in
     waiter = asyncio.ensure_future(page.wait_for_event("filechooser", timeout=0))
     try:
         await _on_selector(session, opener, "click",
-                           lambda: page.click(opener, timeout=ACTION_TIMEOUT_MS))
+                           lambda: where.click(opener, timeout=ACTION_TIMEOUT_MS), on=where)
         return await asyncio.wait_for(waiter, ACTION_TIMEOUT_MS / 1000)
     except asyncio.TimeoutError:
         raise RuntimeError(
@@ -1500,7 +1597,7 @@ async def _open_chooser(session, opener: str):
         waiter.cancel()
 
 
-async def upload_files(session, selector: str, paths) -> str:
+async def upload_files(session, selector: str, paths, frame=None) -> str:
     """Attach local files to a file input, through its file chooser.
 
     The files are checked before any page is touched, the thing that opens the
@@ -1510,15 +1607,17 @@ async def upload_files(session, selector: str, paths) -> str:
     session's own hand - and the input is read back.
     """
     named = uploadable(paths)
-    page = session.page()
+    # `frame` attaches to an input inside an iframe: the chooser still opens on
+    # the page, but what opens it is clicked, and the input read, in the frame.
+    page = await frame_target(session, frame)
     target = await _on_selector(session, selector, "upload",
-                                lambda: page.eval_on_selector(selector, _FILE_INPUT_JS))
+                                lambda: page.eval_on_selector(selector, _FILE_INPUT_JS), on=page)
     if len(named) > 1 and target["file"] and not target["multiple"]:
         raise RuntimeError(f"{selector} takes one file; upload them one at a time")
     opener = await _opener(page, selector, target)
     files = snapshot_files(named)
     session.keep_until_closed(os.path.dirname(os.path.dirname(files[0])))
-    chooser = await _open_chooser(session, opener)
+    chooser = await _open_chooser(session, opener, on=page)
     if len(files) > 1 and not chooser.is_multiple():
         raise RuntimeError(
             f"the chooser {opener} opened takes one file; nothing was attached. "

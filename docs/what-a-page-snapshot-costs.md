@@ -73,8 +73,9 @@ covers when each one is right.
 Three things, each measured on its own page, and together they explain most of
 the "the element is not there" confusions:
 
-- **Nothing inside an iframe.** The host page of a frame containing a button
-  reported `"interactive_elements": []`. See
+- **Nothing inside a frame it cannot read.** Controls in an iframe are listed
+  with their `frame`; a frame that cannot be read or reached is named under
+  `frames` and its controls are not listed. See
   [an agent and an iframe](an-agent-and-an-iframe.md).
 - **Nothing inside a shadow root**, open or closed, even though a click by
   selector reaches both. See

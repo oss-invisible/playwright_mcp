@@ -26,8 +26,10 @@ This is the part worth understanding. A click does not look once and fail. It
 re-resolves the element and re-checks that it is actionable, over and over, until
 either it succeeds or the ceiling runs out.
 
-Measured here on 2026-09-17, a click at a selector that was inside an iframe and
-therefore unreachable: `'#fb' not actionable in 15s after 275 attempts`. This
+Measured here on 2026-09-17, before the tools walked frames, a click at a
+selector that was inside an iframe and therefore unreachable: `'#fb' not
+actionable in 15s after 275 attempts`. A selector given without the `frame` the
+snapshot lists for it still fails that way. This
 project's own source records the same mechanism on a different case: 208 attempts
 over the same fifteen seconds, on a skip-to-content link that reported as visible
 and could not be clicked.
