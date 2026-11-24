@@ -56,8 +56,8 @@ that.
 
 **Inside an iframe.** Keys go to the focused element, and if focus is in the
 outer document they do not enter the frame. Getting focus in there needs a click
-in the frame's area first, which is the coordinate route in
-[an agent and an iframe](an-agent-and-an-iframe.md).
+or a type into a field in the frame first, with the `frame` the snapshot lists,
+as in [an agent and an iframe](an-agent-and-an-iframe.md).
 
 ## Typing is a keyboard operation and it is the expensive one
 
@@ -103,8 +103,8 @@ it is usually more reliable than finding the submit button.
 **Why did Enter do nothing?** Focus was not where you thought. Click into a
 specific field first, then use keys relative to that.
 
-**Can I Tab into an iframe?** Not from the outer document. Click inside the
-frame's area first, by coordinates.
+**Can I Tab into an iframe?** Not from the outer document. Click a control in
+the frame first, with its `frame`.
 
 **Does using the keyboard make typing faster?** No. Text entry is about a second
 plus 270 ms a character regardless, because the keystrokes are paced deliberately.

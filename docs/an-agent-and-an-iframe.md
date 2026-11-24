@@ -1,137 +1,147 @@
 ---
 title: "What an AI agent can and cannot do inside an iframe"
-description: "Measured: the reads are blind to it, a selector times out after 15 seconds and 275 attempts, and the real pointer walks straight in. The clearest case for the coordinate rung there is."
+description: "The snapshot lists what is inside a frame with a ready-made frame chain, every selector tool takes it, read_text reads each frame, and a frame that cannot be read is named instead of hidden."
 parent: "Using the Agent"
 nav_order: 66
 ---
 
 # What an AI agent can and cannot do inside an iframe
 
-An iframe is a second document inside the first, and a browser agent driving the
-outer one does not automatically get the inner one. Measured on 2026-09-17
-against a host page with one same-origin frame in it, served from `127.0.0.1`:
+An iframe is a second document inside the first. Until 0.74 the tools of this
+server stopped at the frame: the snapshot listed nothing from inside it,
+`browser_read_text` skipped it, and a selector for a control in it timed out
+after fifteen seconds and 275 attempts. That is no longer the case. The frame is
+part of the page the tools walk, and a model does not need to be told "this is in
+a frame" to get in.
+
+Measured on 2026-11-24 against a local page whose application form is an iframe
+(the shape of an iCIMS career site: the whole form in `#icims_content_iframe`),
+with a second iframe nested inside it and one more with no id, name or title:
 
 | what was tried | result |
 |---|---|
-| `browser_read_text` | the frame's text is **not** in it |
-| `browser_read_html` | the frame's content is **not** in it |
-| `browser_snapshot` | `"interactive_elements": []` - the frame's button is **not listed** |
-| `browser_click` with the button's selector | **fails**: `'#fb' not actionable in 15s after 275 attempts` |
-| `browser_click_at` on the button's position | **works** |
-| `browser_evaluate` reading `contentDocument` | **works**, same-origin |
+| `browser_snapshot` | lists the form's input, select and file input, each with `"frame": ["#content"]` and the frame's origin; the nested frame's input has `"frame": ["#content", "#deep"]` |
+| `browser_type`, `browser_select_option`, `browser_upload_files` with the element's `selector` and `frame` | **work**: the field read back `Ada Lovelace`, `fr`, `cv.pdf` |
+| `browser_click` and `browser_read_html` with `frame` | **work** |
+| `browser_read_text` | the page's text, then each frame's text under a line that names it |
+| `browser_evaluate` with `frame` | runs in that frame's document |
 
-The frame's title went from `child` to `FRAME-CLICKED` after the coordinate
-click, which is the page's own evidence that the click landed where it was meant
-to rather than on the frame's border.
+## How a model reaches a control in a frame
 
-## Why the reads miss it and the pointer does not
+It does not build anything. Each element of `browser_snapshot` that lives in a
+frame carries `frame`, the selectors of each nested iframe from the outside in,
+and `frame_origin`. The model passes that list, with the element's own
+`selector`, to the tool:
 
-Because they operate on different things. The reads and the selector work on the
-document the tools are pointed at, and the frame is a boundary in that document:
-its contents belong to another one. The pointer works on the **window**. There is
-no boundary in a screen coordinate, so a real click at a position inside the
-frame's rectangle is delivered to whatever the compositor has there, which is the
-frame's button.
+```
+browser_type  selector="#q"  text="Ada Lovelace"  frame=["#content"]
+```
 
-That is the whole explanation, and it generalises: **anything routed through the
-document stops at the frame, anything routed through the input devices does
-not.** Typing and key presses behave like the pointer once focus is inside.
+`frame` is accepted by `browser_click`, `browser_type`, `browser_select_option`,
+`browser_upload_files`, `browser_read_text`, `browser_read_html` and
+`browser_evaluate`. Left out, the tool acts on the top-level document exactly as
+before. Each call resolves the chain afresh and requires every step to match one
+iframe with a document, so a frame the page replaced is found again and a
+selector that matches two frames is refused, not guessed.
 
-## This is the textbook case for the second rung
+Cross-origin frames work too: the engine reads each frame in its own document,
+which a script in the parent cannot do. That is why the snapshot can list a
+payment widget or a vendor's embedded form, and why it reports the frame's
+**origin** and never its URL, which commonly carries a session token.
 
-A browser MCP server offers a ladder: a named tool with a selector first,
-coordinates when no selector describes the target, the picture when the snapshot
-does not list the thing at all. The ordering usually reads as a preference for
-precision. Here it is not a preference, it is the only route.
+## What `browser_read_text` does with frames
 
-Get the coordinates the same way you would for a canvas or a slider: take a
-screenshot, find the control in the picture, and click where it is. The snapshot
-will not help you because, as measured above, it lists nothing from inside the
-frame.
+The selector is looked for in the top-level document and in every painted iframe
+under it. The page's text comes first, unmarked; each frame with a match follows
+under a line that names it:
 
-[Clicking by selector or by coordinates](clicking-by-selector-or-by-coordinates.md)
-has the trade in general, including the failure asymmetry that makes the first
-rung worth trying first everywhere else.
+```
+Career site
 
-## The fifteen seconds you will otherwise spend confused
+--- frame #content [http://127.0.0.1:53085] ---
+Your details
+Full name
 
-The selector attempt is worth dwelling on, because of how it fails. It does not
-say "there is no such element". It retries for fifteen seconds, 275 times, and
-then reports the element as not actionable.
+--- frame #content > #deep [http://127.0.0.1:53085] ---
+deep text
+```
 
-From the outside that looks like a slow page or a flaky selector, which is the
-wrong diagnosis and sends you off tuning waits. **A click that burns the full
-fifteen seconds on a page you know contains the element is a strong hint that the
-element is in a frame**, and it is worth checking before anything else.
+A frame in which the selector matches nothing is left out, so a narrow selector
+costs nothing for the frames. `frame` reads inside that one frame alone.
 
-The general shape of the "it retried and gave up" failure is in
-[how long the agent waits before it gives up](how-long-before-the-agent-gives-up.md).
+## A frame that cannot be read is named, not hidden
 
-## Reading what is inside, when you need the text
+`browser_snapshot` lists every frame it found under `frames`, and says what it
+could not do with one:
 
-Two routes, and which one you get depends on origin.
+- **`unreadable`**: the frame went away while the page was being read, or its
+  document did not answer. It is listed, with no controls.
+- **`unaddressable`**: no selector reaches it from its parent (no id, name, title,
+  test id or label that is unique), or it sits inside a shadow root. Its controls
+  are not listed because nothing could act on them. `browser_read_text` still
+  reads its text, since reading needs no way in.
 
-**Same origin**: `browser_evaluate` can reach `contentDocument` and read the
-frame's DOM. Measured above. That is a read, which this browser allows; acting on
-it from script is refused, for the reason in
+A frame that is not painted (an ad with `display: none`) is not listed at all.
+Nesting is followed four levels deep; below that the page is one this server has
+not met.
+
+## What did not change
+
+**The pointer still works across a frame.** A real click at a position inside the
+frame's rectangle lands on whatever is there, and the snapshot gives `at` for
+elements without a selector in the top-level viewport, so
+`browser_click_at` takes it as it takes any other. The coordinate rung is still
+the one for a control no selector describes, in a frame or out of it:
+[clicking by selector or by coordinates](clicking-by-selector-or-by-coordinates.md).
+
+**Keys go to the focused element.** If focus is in the outer document they do not
+enter the frame; click or type into a field inside it first, with `frame`.
+
+**A script does not act for you.** `browser_evaluate` with `frame` reads the
+frame's document; acting from script is refused there as anywhere, for the reason
+in
 [keeping an AI browser agent out of destructive actions](keeping-an-ai-agent-out-of-destructive-actions.md).
 
-**Cross origin**: nothing. `contentDocument` is null and the browser is enforcing
-the same rule it enforces for every script on the web. There is no setting on
-this side that changes it, and a tool that claimed otherwise would be describing
-a security hole.
+**The wrong-frame symptom is gone, the long wait is not.** A control that is
+neither in the snapshot nor in the frames list still burns the full fifteen
+seconds when clicked by selector. The general shape of that is in
+[how long the agent waits before it gives up](how-long-before-the-agent-gives-up.md).
 
-For a cross-origin frame the honest options are: click by coordinates, read it
-out of a screenshot, or navigate the frame's URL directly in the main page and
-work with it as a page of its own. The third is usually the best one and is the
-least considered.
+## Say nothing special in the task
 
-## Say "iframe" in the task
-
-The practical instruction, and it costs one sentence: tell the agent the content
-is in a frame, and tell it to use coordinates for it. Otherwise the default
-behaviour is to try the selector, wait fifteen seconds, conclude the element does
-not exist, and go looking for another way in.
-
-Also worth saying: consent walls, payment fields, embedded maps, video players,
-chat widgets and comment sections are frames more often than not. If a control
-you can plainly see is invisible to every read, that is the first thing to
-suspect.
+Consent walls, payment fields, embedded maps, video players, chat widgets and
+application forms are frames more often than not. The model does not need the
+word "iframe" in the task: the snapshot names the frame and hands over the chain.
 
 ## Short answers to the questions that lead here
 
-**Can an AI agent click a button inside an iframe?** By coordinates, yes,
-measured. By selector, no: it times out after fifteen seconds without finding the
-element.
+**Can an AI agent click a button inside an iframe?** Yes, by selector with the
+`frame` the snapshot gave, or by coordinates.
 
-**Why does my agent say the element does not exist when I can see it?** If it is
-in a frame, the reads and the snapshot genuinely do not contain it. Look for a
-frame before you suspect the selector.
+**Can it type into a field, choose an option or attach a file inside one?** Yes,
+measured, including a file input through its chooser.
 
-**Can it read text inside a frame?** From a same-origin frame, yes, through
-`contentDocument`. From a cross-origin one, no, and that is the browser's
-security model rather than a limitation of the tool.
+**Can it read text inside a frame?** Yes, same-origin or not: `browser_read_text`
+includes it, marked per frame.
 
-**What is the best way to handle a cross-origin frame?** Often to open the
-frame's own URL as the main page and work with it directly. Otherwise
-coordinates, or a screenshot.
+**What does it say about a frame it cannot read?** `unreadable` or
+`unaddressable`, in the `frames` list of the snapshot, and a line naming it in
+`browser_read_text`.
 
-**How do I know something is in a frame?** A control that is visible on screen
-and absent from `browser_snapshot` is the signature. A fifteen-second timeout on
-a selector you are sure about is the second.
+**How do I know something is in a frame?** Its element in `browser_snapshot`
+carries `frame`.
 
 **See also:**
-[what a page snapshot costs, per control](what-a-page-snapshot-costs.md), which
-is the other half of understanding what the snapshot does and does not contain,
-and
-[shadow DOM and an AI agent](shadow-dom-and-an-ai-agent.md), which is the mirror
-image of this page: a boundary the reads cannot cross and the selector can.
+[what a page snapshot costs, per control](what-a-page-snapshot-costs.md), and
+[shadow DOM and an AI agent](shadow-dom-and-an-ai-agent.md), the mirror image of
+this page: a boundary the reads cannot cross and the selector can.
 
 ## Sources
 
-- Measured 2026-09-17 through this project's MCP server over stdio, against a host page with one same-origin iframe served from `127.0.0.1`. The snapshot returned `{"title": "host", "url": "...", "interactive_elements": []}`; `browser_click` on the frame button's selector returned `'#fb' not actionable in 15s after 275 attempts`; `browser_click_at` at the button's screen position changed the frame document's title from `child` to `FRAME-CLICKED`, read back through `contentDocument`.
+- Measured 2026-11-24 through this project's own tool functions against a local page served from `127.0.0.1`: an iframe holding a text input, a select and a file input, a nested iframe with a text input, and an iframe with no id, name or title. The snapshot listed the controls with `frame` `["#content"]` and `["#content", "#deep"]` and one frame as `unaddressable`; type, select and upload through those selectors left the fields reading `Ada Lovelace`, `fr` and `cv.pdf`, read back with `browser_evaluate` and `frame`. The page is in `tests/mcp_server/test_the_page_is_walked_once.py`.
+- The earlier behaviour (an empty snapshot, `'#fb' not actionable in 15s after 275 attempts`) was measured on 2026-09-17 on a same-origin frame, before the tools walked frames.
 
 ---
 
-*The pair to hold in your head: the document stops at the frame, the pointer does
-not. Every line above follows from that, including the fifteen seconds.*
+*The pair to hold in your head: the frame is part of the page now, and the chain
+in the snapshot is the way in.*

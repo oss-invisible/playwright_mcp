@@ -45,8 +45,9 @@ behaviour of a page with images and lazy content, and it has
 
 Three cases, two of them measured on their own pages here:
 
-- **Inside an iframe.** The selector times out after fifteen seconds; the
-  coordinate click lands. Measured, in
+- **Inside an iframe, when the snapshot lists no selector for it.** A control in
+  a frame has a selector and a `frame` in the snapshot and is clicked by both;
+  one in a frame no selector reaches is on coordinates. See
   [an agent and an iframe](an-agent-and-an-iframe.md).
 - **A component with no usable selector**, typically inside a shadow root with
   nothing stable exposed. Clicking into a shadow root by selector does work when
@@ -109,8 +110,8 @@ the same button. The difference is a real pointer being moved.
 **Why prefer the selector if both work?** Because when it is wrong it fails
 visibly. A wrong coordinate clicks something else and reports success.
 
-**When do I have to use coordinates?** Inside an iframe, on a component with no
-usable selector, and on anything drawn rather than built from elements: canvas,
+**When do I have to use coordinates?** On a component with no usable selector
+(a frame no selector reaches included), and on anything drawn rather than built from elements: canvas,
 maps, sliders.
 
 **Where do the coordinates come from?** The snapshot gives `at: [x, y]` per
