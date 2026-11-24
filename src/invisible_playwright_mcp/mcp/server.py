@@ -554,19 +554,29 @@ async def browser_navigate(url: str, wait_until: str = "domcontentloaded",
                              role=browser)
 
 
+#: The iframe a selector tool acts in: the selectors of each nested iframe,
+#: outermost first, exactly as browser_snapshot reports an element's `frame`.
+#: Omitted, the top-level document, as before frames were reachable.
+FrameChain = list[str] | None
+
+
 @mcp.tool(annotations=_says("Read the page text", read_only=True))
 async def browser_read_text(selector: str = "body",
-                            browser: Browser = None) -> str:
+                            browser: Browser = None,
+                            frame: FrameChain = None) -> str:
     """The visible text of an element, with the markup gone, whole.
 
     The cheapest way to read a page. Narrow the selector when you know where the
     answer is; use browser_read_html instead when the structure matters, or
-    browser_snapshot when you need something to click."""
+    browser_snapshot when you need something to click.
+
+    Text inside iframes follows the page's, each frame under a line naming it
+    (one that cannot be read is named too). frame reads inside that one."""
     # ⛔ NO `max_chars` SINCE 0.72.0. The text was cut at 6000 characters with a
     # marker asking the model to raise the number: a second call to get what the
     # first should have given, and a cut answer read as the page whenever the
     # marker was missed. Answers come back whole (`actions.py`, top).
-    return await work.reading(actions.read_text, selector, role=browser)
+    return await work.reading(actions.read_text, selector, frame=frame, role=browser)
 
 
 @mcp.tool(annotations=_says("Snapshot the page", read_only=True))
@@ -575,20 +585,19 @@ async def browser_snapshot(browser: Browser = None) -> str:
 
     Each element carries a `selector` when one can reach it: pass that string to
     browser_click or browser_type VERBATIM rather than writing your own. It is
-    built to match exactly ONE element, which the obvious selector often does
-    not, and the driver acts on the first match - so a caller aiming at the
-    third of five identical links would silently hit the first and be told it
-    succeeded.
+    built to match exactly ONE element, and the driver acts on the first match,
+    so a caller aiming at the third of five identical links would silently hit
+    the first and be told it succeeded.
 
     Elements with no `selector` carry `at`, the centre coordinates, for
     browser_click_at.
 
     Controls inside iframes, cross-origin too, carry `frame` (pass it with the
-    selector) and `frame_origin`; `frames` lists each frame found.
+    selector to any tool) and `frame_origin`. `frames` lists each frame and marks
+    one it cannot read `unreadable`, or `unaddressable` when no selector reaches it.
 
     It lists what a caller can act on, and it is not the accessibility tree:
-    one country `<select>` would otherwise fill the answer with its options
-    before the form you were looking for appears.
+    one country `<select>` would otherwise fill the answer with its options.
     """
     # ⛔ THE MEASUREMENTS BEHIND THE TWO PARAGRAPHS ABOVE LIVE IN `actions.py`,
     # BESIDE THE CODE THEY JUSTIFY, and used to live here as well. The numbers
@@ -602,12 +611,6 @@ async def browser_snapshot(browser: Browser = None) -> str:
     # reads. It also spends the 1024 characters this description is cut at on
     # evidence for a reader who is not there.
     return await work.reading(actions.snapshot, role=browser)
-
-
-#: The iframe a selector tool acts in: the selectors of each nested iframe,
-#: outermost first, exactly as browser_snapshot reports an element's `frame`.
-#: Omitted, the top-level document, as before frames were reachable.
-FrameChain = list[str] | None
 
 
 @mcp.tool(annotations=_says("Read the page HTML", read_only=True))
@@ -753,7 +756,8 @@ async def browser_select_option(selector: str, value: str,
 
 @mcp.tool(annotations=_says("Upload files", destructive=True))
 async def browser_upload_files(selector: str, paths: list[str],
-                               browser: Browser = None) -> str:
+                               browser: Browser = None,
+                               frame: FrameChain = None) -> str:
     """Attach local files to a file input, the way a person picks them.
 
     `selector` is the `<input type=file>` itself, or the button or label that
@@ -764,8 +768,9 @@ async def browser_upload_files(selector: str, paths: list[str],
 
     Each path is absolute and names a regular file inside a directory listed
     in INVISIBLE_MCP_UPLOAD_DIRS, through no hidden directory; with none
-    listed, uploads are off. Never use browser_evaluate to set `files`."""
-    return await work.acting(actions.upload_files, selector, paths, role=browser)
+    listed, uploads are off. Never use browser_evaluate to set `files`.
+    Inside an iframe, pass the snapshot's `frame`."""
+    return await work.acting(actions.upload_files, selector, paths, frame=frame, role=browser)
 
 
 @mcp.tool(annotations=_says("Press a key", destructive=True))

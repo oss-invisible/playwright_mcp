@@ -15,7 +15,7 @@ the work, because three of the four are not detection at all.
 
 **The snapshot is empty or missing what you can see in a browser.** Not blocked.
 The page rendered its content after the snapshot was taken, or the content is
-inside an iframe the snapshot did not descend into, or it is drawn on a canvas
+inside an iframe the snapshot lists as `unreadable` or `unaddressable`, or it is drawn on a canvas
 that has no accessibility representation. Ask for the snapshot again after the
 page settles, or take a screenshot and compare: if the screenshot has the
 content and the tree does not, this is your case.
