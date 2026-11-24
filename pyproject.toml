@@ -31,7 +31,19 @@ dependencies = [
     # >=1.8, because main() offers the streamable HTTP transport and the SDK
     # gained it in 1.8.0 (measured on the wheels: 1.7.1 has no streamable_http
     # module, 1.8.0 does). <2 because the server constructs FastMCP directly.
-    "mcp>=1.8,<2",
+    #
+    # ⛔ >=1.19.0, BECAUSE BELOW IT A TOOL CANNOT ANSWER A SENTENCE AND ITS STATE
+    # TOGETHER. `browser_status`, `browser_type` and `browser_open` say their
+    # state as data (`mcp/state.py`): the sentence stays the text and the state
+    # travels as `structuredContent`, checked against the tool's `outputSchema`,
+    # on an error result as well as an answer. The only way to hand FastMCP a
+    # result with both, and a schema for it, is `-> Annotated[CallToolResult,
+    # Model]`, and that is the SDK's from 1.19.0 (measured on the wheels: 1.18.0
+    # has no CallToolResult in `func_metadata` and its low-level handler does
+    # not pass one through; 1.19.0 and every later one do). Structured output
+    # itself began at 1.10, but there the text can only be the SDK's own dump
+    # of the structure, which would change what every current client reads.
+    "mcp>=1.19.0,<2",
     # >=0.9.0 and not lower, because the server's own behaviour depends on
     # the fix in it: browser_click_at holds a button down with
     # wait_for_timeout, and in every earlier version that wait returned

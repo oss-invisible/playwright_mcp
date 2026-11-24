@@ -15,16 +15,16 @@ Multiply by turns.
 ## The measurement, from our own server
 
 Nobody publishes this figure, so here is ours, enumerated from the running
-server's own tool registry on 2026-11-20 and counted with a tokenizer rather
+server's own tool registry on 2026-11-24 and counted with a tokenizer rather
 than a characters-per-token rule of thumb:
 
 | | |
 |---|---|
 | Tools exposed | **20** |
-| Description characters | 11,042 |
-| Tokens, descriptions alone | 2,532 |
-| Tokens, complete definitions resent every turn | **4,517** |
-| Median tokens per tool | 208 |
+| Description characters | 11,359 |
+| Tokens, descriptions alone | 2,618 |
+| Tokens, complete definitions resent every turn | **4,603** |
+| Median tokens per tool | 211 |
 
 A forty-turn browsing session therefore spends on the order of **180,000
 tokens** restating what the tools are, before counting a single page of content
@@ -91,7 +91,7 @@ measurements, including the one that reverses on a long page.
 **Is there a hard limit on MCP tools?** Not in the protocol. Clients impose
 their own caps, and the model's ability to choose degrades before any cap.
 
-**How much context do MCP tools use?** Ours: 4,517 tokens on every turn, for 20
+**How much context do MCP tools use?** Ours: 4,603 tokens on every turn, for 20
 tools. Yours scales with description length and argument schemas, not just
 count.
 
@@ -113,7 +113,7 @@ of four decisions is exactly this budget.
 
 ## Sources
 
-- This project's own MCP server, enumerated through its tool registry on 2026-11-20: 20 tools, 11,042 characters of description, 4,517 tokens for the complete definitions, median 208 tokens per tool. Tokens counted with `tiktoken` (`o200k_base`), not estimated from character count.
+- This project's own MCP server, enumerated through its tool registry on 2026-11-24: 20 tools, 11,359 characters of description, 4,603 tokens for the complete definitions, median 211 tokens per tool. Tokens counted with `tiktoken` (`o200k_base`), not estimated from character count.
 - [The Model Context Protocol documentation](https://modelcontextprotocol.io/docs/learn/server-concepts), retrieved 2026-09-11, for `tools/list` and the schema-defined shape of a tool.
 
 ---

@@ -13,9 +13,9 @@ through a model. That is a few seconds and a few thousand tokens per page. A
 plain script does the same page in a fraction of a second for nothing.
 
 The floor under that estimate is measurable and it is ours: our server's 20
-tool definitions are **4,517 tokens resent on every turn** (11,042 characters
+tool definitions are **4,603 tokens resent on every turn** (11,359 characters
 of description plus each tool's argument schema, counted with a tokenizer on
-2026-11-20). Page content and the model's own reasoning stack on top of that
+2026-11-24). Page content and the model's own reasoning stack on top of that
 floor. Multiply by
 turns, then by pages, and phase 2 below stops being a style preference.
 

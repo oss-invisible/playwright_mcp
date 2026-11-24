@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from invisible_playwright.async_api import TargetClosedError
 
+from invisible_playwright_mcp.link import answer_of, text_of
 from invisible_playwright_mcp.mcp import GONE, NOT_OPEN, OPENED, actions, network, server, store
 from invisible_playwright_mcp.mcp.work import REMEMBERED, Work, profile_holder
 
@@ -148,9 +149,11 @@ async def test_before_browser_open_every_tool_says_so_and_names_the_call(work, n
 
 
 async def test_browser_open_then_the_tool_works(work):
-    said = await server.browser_open(seed=4242)
+    result = await server.browser_open(seed=4242)
+    said = text_of(result)
 
     assert said.startswith(OPENED % "main" + " identity: seed 4242")
+    assert result.structuredContent == {"opened": True, "cause": None}
     assert work.roles() == ["main"]
     assert "navigated to https://example.com/" in await server.browser_navigate("https://example.com/")
     assert _session(work).urls == ["https://example.com/"]
@@ -227,7 +230,7 @@ async def test_open_with_no_arguments_reopens_the_person_this_session_was(work, 
 
     restarted = Work("default", factory=_Recording)
     monkeypatch.setattr(server, "work", restarted)
-    said = await server.browser_open()
+    said = text_of(await server.browser_open())
 
     launched = restarted._open["main"].kwargs
     assert launched["seed"] == 4242
@@ -325,8 +328,8 @@ async def test_a_third_browser_is_refused_with_the_two_that_exist(work):
 async def test_a_failed_start_leaves_nothing_open_and_says_so(work, monkeypatch):
     monkeypatch.setattr(work, "_factory", _NeverStarts)
 
-    with pytest.raises(RuntimeError, match="did NOT start"):
-        await server.browser_open(seed=4242)
+    said, failed = answer_of(await server.browser_open(seed=4242))
+    assert failed and "did NOT start" in said, said
 
     assert work.roles() == []
     with pytest.raises(RuntimeError) as told:
@@ -379,9 +382,8 @@ async def test_a_profile_the_other_browser_holds_is_refused_by_name(work, tmp_pa
     await server.browser_open(profile=shared)
     main = _session(work)
 
-    with pytest.raises(ValueError) as refused:
-        await server.browser_open(browser="support", profile=shared)
-    said = str(refused.value)
+    said, refused = answer_of(await server.browser_open(browser="support", profile=shared))
+    assert refused
     assert "`main` already has the profile" in said and "proxy" not in said
     assert work.roles() == ["main"] and not main.closed
 
@@ -437,9 +439,8 @@ async def test_a_profile_another_firefox_holds_is_refused_before_the_launch(work
     lock rather than a proxy the launch did not have."""
     profile = str(tmp_path / "profile")
     with held_profile(profile):
-        with pytest.raises(ValueError) as refused:
-            await server.browser_open(browser="support", profile=profile)
-    said = str(refused.value)
+        said, refused = answer_of(await server.browser_open(browser="support", profile=profile))
+    assert refused
     assert "another Firefox" in said and "already has the profile" in said, said
     assert "proxy" not in said
     assert work.roles() == [], "something was launched on a held profile"
@@ -480,10 +481,10 @@ def _a_process_that_is_gone() -> int:
 
 async def test_a_failed_start_without_a_proxy_does_not_blame_one(work, monkeypatch):
     monkeypatch.setattr(work, "_factory", _NeverStarts)
-    with pytest.raises(RuntimeError) as told:
-        await server.browser_open(seed=4242)
-    assert 'proxy=""' not in str(told.value)
-    assert "proxy" not in str(told.value).split("\n", 1)[1]
+    said, failed = answer_of(await server.browser_open(seed=4242))
+    assert failed
+    assert 'proxy=""' not in said
+    assert "proxy" not in said.split("\n", 1)[1]
 
 
 # --- looking -------------------------------------------------------------------------
@@ -592,7 +593,7 @@ async def test_status_reports_the_person_and_the_page_or_the_sentence(work):
 
     await server.browser_open(seed=4242, proxy="socks5://user:secret@10.0.0.1:1080")
     await server.browser_navigate("https://example.com/")
-    said = await server.browser_status()
+    said = text_of(await server.browser_status())
 
     assert "seed 4242" in said and "page: https://example.com/." in said
     assert "socks5://10.0.0.1:1080" in said and "secret" not in said

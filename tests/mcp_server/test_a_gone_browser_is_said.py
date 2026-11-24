@@ -34,6 +34,7 @@ import sys
 
 import pytest
 
+from invisible_playwright_mcp.link import text_of
 from invisible_playwright_mcp.mcp import GONE, NOT_OPEN, server
 
 BINARY = os.environ.get("STEALTHFOX_BINARY")
@@ -65,7 +66,7 @@ def _end(pids) -> None:
 async def _open_and_kill(seed: int, before: set) -> None:
     """Open `main` on the real engine, put it on a page, and end the engine
     processes this started - and only those."""
-    said = await server.browser_open(seed=seed)
+    said = text_of(await server.browser_open(seed=seed))
     assert "seed %d" % seed in said, said
     mine: set = set()
     for _ in range(40):
@@ -121,7 +122,7 @@ async def test_a_browser_killed_under_an_action_is_said_and_comes_back_as_the_sa
         assert str(again.value) == NOT_OPEN % "main"
 
         await server.browser_open()
-        assert "seed 4242" in await server.browser_status(), (
+        assert "seed 4242" in text_of(await server.browser_status()), (
             "the browser that came back is not the person the session was")
     finally:
         await server.work.close_all()

@@ -29,6 +29,12 @@ from pathlib import Path
 #: it. A version here is not a preference: it is the first release in which the
 #: named behaviour is true.
 WHAT_THE_TOOLS_NEED = {
+    "mcp": [
+        ("1.19.0", "browser_status, browser_type and browser_open answer a sentence "
+                   "and their state as data: `-> Annotated[CallToolResult, Model]` "
+                   "is how FastMCP derives the outputSchema and checks a result "
+                   "that carries its own text, and it is the SDK's from 1.19.0"),
+    ],
     "invisible-playwright": [
         ("0.13.0", "browser_watch and the live pane are built on page.screencast"),
         ("0.13.2", "browser_navigate reports the HTTP status and the landed url"),
