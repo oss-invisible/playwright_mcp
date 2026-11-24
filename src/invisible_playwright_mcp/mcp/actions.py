@@ -22,6 +22,7 @@ import shutil
 import stat
 import tempfile
 from dataclasses import dataclass
+from typing import Optional
 
 from . import clean, process
 from ..quiet import swallow
@@ -1139,6 +1140,21 @@ def what_the_field_kept(selector: str, text: str, before: dict, after: dict) -> 
     return "typed into %s; the page shows it as %s" % (selector, _shown(value, secret))
 
 
+class Typed(str):
+    """What `type_text` answers: the sentence, which is all a model reads, and
+    `kept`, how many characters the field held afterwards - None when it is not
+    a field whose text can be read back. `Work.typing` reports it as data
+    (`TypingState.kept`), so that nothing has to count the characters in a
+    sentence."""
+
+    kept: Optional[int]
+
+    def __new__(cls, sentence: str, kept: Optional[int]):
+        self = super().__new__(cls, sentence)
+        self.kept = kept
+        return self
+
+
 async def type_text(session, selector: str, text: str, frame=None) -> str:
     """Type into a field the way a person does, and say what the field kept.
 
@@ -1171,7 +1187,10 @@ async def type_text(session, selector: str, text: str, frame=None) -> str:
                                 lambda: _field_state(page, selector), on=page)
     await _on_selector(session, selector, "typing",
                        lambda: page.fill(selector, text, timeout=ACTION_TIMEOUT_MS), on=page)
-    return what_the_field_kept(selector, text, before, await _field_state(page, selector))
+    after = await _field_state(page, selector)
+    value = after.get("value")
+    return Typed(what_the_field_kept(selector, text, before, after),
+                 None if value is None else len(value))
 
 
 async def select_option(session, selector: str, value: str, frame=None) -> str:

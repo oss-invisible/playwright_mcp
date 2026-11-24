@@ -42,7 +42,9 @@ from invisible_playwright.async_api import TargetClosedError
 from . import DEFAULT_BROWSER_ID, GONE, NOT_OPEN, OPENED, SUPPORT_BROWSER_ID, identity, plan, process, store
 from ..quiet import swallow
 from .actions import NAVIGATION_TIMEOUT_MS
+from .open_cause import cause_of
 from .session import StealthSession
+from .state import Answer, OpenAnswer, Refusal, TypingAnswer, TypingState
 
 #: TWO browsers in one piece of work, with fixed roles, and the number is a
 #: decision rather than a measurement - the opposite of what it was until
@@ -112,6 +114,19 @@ class _Typing:
     total: int
     started: float
     outlived: bool = False
+
+
+class HeldProfile(Refusal, ValueError):
+    """`browser_open` refused before the launch: another browser holds the
+    profile. A `ValueError`, as it was before it carried a state."""
+
+
+class DidNotStart(Refusal, RuntimeError):
+    """`browser_open` launched a browser and it did not start."""
+
+
+class StillTyping(Refusal, RuntimeError):
+    """An action refused because this browser is typing in the background."""
 
 
 def profile_holder(directory) -> Optional[str]:
@@ -291,9 +306,10 @@ class Work:
 
     async def open(self, role: str, *, seed: Optional[int] = None,
                    proxy: Optional[str] = None,
-                   profile: Optional[str] = None) -> str:
+                   profile: Optional[str] = None) -> Answer:
         """Open one of the two browsers as somebody, or reopen it as somebody
-        else. Answers with the plan it made.
+        else. Answers with the plan it made, and with `OpenAnswer` as its state:
+        opened, or the cause when it is not (`state.OPEN_CAUSES`).
 
         ⛔ WITH NO ARGUMENTS, `main` IS THE PERSON THIS SESSION ALREADY WAS.
         That is the whole of what survives a process: three fields in a file,
@@ -372,7 +388,8 @@ class Work:
             self._engine.start()
             await asyncio.to_thread(self._engine.settle, ENGINE_SETTLE_SECONDS)
             if not self._engine.ready():
-                return self._engine.describe()
+                return Answer(self._engine.describe(),
+                              OpenAnswer(opened=False, cause=self._engine.cause()))
 
         async with self._lock:
             # ⛔ The old browser is closed FIRST and unconditionally. Starting
@@ -391,11 +408,16 @@ class Work:
                 # for.
                 with swallow("a session that did not start may have nothing to close"):
                     await session.close()
-                raise RuntimeError(
+                #
+                # ⛔ NAMED HERE, WHERE THE EXCEPTION IS WHOLE: the engine says
+                # why in its message (Firefox's own last lines) and in nothing
+                # else, so a caller further up could only match English.
+                raise DidNotStart(
                     "the %s browser did NOT start: %s\n"
                     "Nothing is browsing there, and the tools will keep failing "
                     "until browser_open succeeds.%s"
-                    % (role, exc, _why_it_did_not_start(settings)))
+                    % (role, exc, _why_it_did_not_start(settings)),
+                    OpenAnswer(opened=False, cause=cause_of(exc))) from exc
             self._open[role] = session
             self._launched[role] = settings
             # Opening a browser is working in it: a helper opened mid-task is
@@ -404,8 +426,9 @@ class Work:
             self._acted = role
             if role == DEFAULT_BROWSER_ID:
                 self.remember()
-        return "%s %s" % (OPENED % role, plan.describe(
-            settings, seed_from=seed_from, exit_note=exit_note, warnings=warnings))
+        return Answer("%s %s" % (OPENED % role, plan.describe(
+            settings, seed_from=seed_from, exit_note=exit_note, warnings=warnings)),
+            OpenAnswer(opened=True))
 
     def _refuse_a_held_profile(self, role: str, directory) -> None:
         """Refuse, BEFORE the launch, a profile another browser holds.
@@ -435,9 +458,10 @@ class Work:
         advice = ("Leave profile out for a helper that is not saved, or give it "
                   "another directory." if role == SUPPORT_BROWSER_ID else
                   "Close that browser first, or give main another directory.")
-        raise ValueError(
+        raise HeldProfile(
             "refused: %s already has the profile %s open, and Firefox lets one "
-            "browser use a profile at a time. %s" % (holder, directory, advice))
+            "browser use a profile at a time. %s" % (holder, directory, advice),
+            OpenAnswer(opened=False, cause="profile_locked"))
 
     async def close(self, role: str) -> str:
         """Close one browser. Who it was is kept: `browser_open` with no
@@ -541,7 +565,7 @@ class Work:
         return await self._act(role or DEFAULT_BROWSER_ID, fn, *args, **kwargs)
 
     async def typing(self, fn: Callable[..., Awaitable], selector: str, text: str,
-                     role: Optional[str] = None, **kwargs) -> str:
+                     role: Optional[str] = None, **kwargs) -> Answer:
         """Type, through the input lock like any action, answering within
         `ANSWER_WITHIN_S` whether or not the typing has finished.
 
@@ -559,7 +583,11 @@ class Work:
         it has got rather than queued - a click left waiting ten minutes would
         outlive its own call and then land on a page the caller has stopped
         thinking about - and reads go on as usual. The outcome, kept or not, is
-        said by the first action after it.
+        said by the first action after it, and is data (`TypingState`) in
+        `browser_status` until then.
+
+        The answer carries the typing as data in every case: `finished` when it
+        ended within the call, `typing` when it goes on.
         """
         at = role or DEFAULT_BROWSER_ID
         await self._refuse_while_typing(at)
@@ -581,15 +609,16 @@ class Work:
             self._typing[at] = rec
             raise
         if task in done:
-            return news + task.result()
+            return Answer(news + task.result(), TypingAnswer(typing=self._typing_state(rec)))
         rec.outlived = True
         self._typing[at] = rec
-        return news + (
+        return Answer(news + (
             "still typing into %s: %d characters at this browser's typing pace "
             "take longer than one answer may wait, so the typing goes on after "
             "this answer. Until it is done, actions on the %s browser are "
             "refused with how far it has got; reads work as usual, and "
-            "browser_status says when it has finished." % (selector, len(text), at))
+            "browser_status says when it has finished." % (selector, len(text), at)),
+            TypingAnswer(typing=self._typing_state(rec, await self._typed_so_far(at, rec))))
 
     def _input_lock(self, at: str) -> asyncio.Lock:
         return self._input_locks.setdefault(at, asyncio.Lock())
@@ -599,32 +628,65 @@ class Work:
         rec = self._typing.get(at)
         if rec is None or not rec.outlived or rec.task.done():
             return
-        raise RuntimeError("the %s browser is still typing %s. Reads work "
-                           "meanwhile; ask for this again when it is done."
-                           % (at, await self._typing_progress(at, rec)))
+        typed = await self._typed_so_far(at, rec)
+        raise StillTyping("the %s browser is still typing %s. Reads work "
+                          "meanwhile; ask for this again when it is done."
+                          % (at, self._how_far(rec, typed)),
+                          TypingAnswer(typing=self._typing_state(rec, typed)))
 
-    async def _typing_progress(self, at: str, rec: "_Typing") -> str:
-        """`into #x: 812 of 2000 characters so far, about 7 minutes to go`."""
-        said = "into %s" % rec.selector
-        with swallow("how far it got is a courtesy; the refusal stands without it"):
+    async def _typed_so_far(self, at: str, rec: "_Typing") -> Optional[int]:
+        """How many characters the field holds, or None when it cannot be read:
+        a courtesy, and nothing that is said depends on it."""
+        with swallow("how far it got is a courtesy; what is said stands without it"):
             held = await self.session(at).page().locator(rec.selector).first.input_value(
                 timeout=1_000)
+            return len(held)
+        return None
+
+    @staticmethod
+    def _how_far(rec: "_Typing", typed: Optional[int]) -> str:
+        """`into #x: 812 of 2000 characters so far, about 7 minutes to go`."""
+        said = "into %s" % rec.selector
+        if typed is not None:
             spent = time.monotonic() - rec.started
-            said += ": %d of %d characters so far" % (len(held), rec.total)
-            if held and spent > 0:
-                left = (rec.total - len(held)) * spent / len(held)
+            said += ": %d of %d characters so far" % (typed, rec.total)
+            if typed and spent > 0:
+                left = (rec.total - typed) * spent / typed
                 said += ", about %d minutes to go" % max(1, round(left / 60))
         return said
 
-    def typing_status(self, at: str) -> str:
-        """What `browser_status` adds about typing in the background: that it
-        goes on, or how it ended. Empty when there is nothing to say."""
+    @staticmethod
+    def _typing_state(rec: Optional["_Typing"], typed: Optional[int] = None) -> TypingState:
+        """The typing in `rec`, as data. `typed` is how far a typing in flight
+        has got, when it has been read; a typing that ended says its own end.
+
+        ⛔ A PURE READ OF THE RECORD. Reading the state does not retire it:
+        a client polling `browser_status` must see how a typing ended for as
+        long as it has not moved on, and `browser_status` is declared read-only.
+        What retires the record is the next ACTION on the browser (`acting`,
+        `typing`), whose answer says the outcome once, in words."""
+        if rec is None or rec.task.cancelled():
+            return TypingState(state="idle")
+        shown = dict(selector=rec.selector, total=rec.total)
+        if not rec.task.done():
+            return TypingState(state="typing", done=typed, **shown)
+        if rec.task.exception() is not None:
+            return TypingState(state="stopped", **shown)
+        return TypingState(state="finished", done=rec.total,
+                           kept=getattr(rec.task.result(), "kept", None), **shown)
+
+    async def typing_report(self, at: str) -> tuple[str, TypingState]:
+        """What `browser_status` adds about typing in the background: the words
+        (empty when there is nothing to say) and the state as data. Neither
+        retires a finished typing; see `_typing_state`."""
         rec = self._typing.get(at)
         if rec is None:
-            return ""
+            return "", self._typing_state(None)
         if not rec.task.done():
-            return " typing: still going on in the background, into %s." % rec.selector
-        return " " + self._typing_news(at).strip()
+            return (" typing: still going on in the background, into %s." % rec.selector,
+                    self._typing_state(rec, await self._typed_so_far(at, rec)))
+        ended = self._how_it_ended(rec).strip()
+        return (" " + ended if ended else ""), self._typing_state(rec)
 
     def _typing_news(self, at: str) -> str:
         """How a typing that went on in the background ended, said once, by the
@@ -633,6 +695,10 @@ class Work:
         if rec is None or not rec.task.done():
             return ""
         del self._typing[at]
+        return self._how_it_ended(rec)
+
+    @staticmethod
+    def _how_it_ended(rec: "_Typing") -> str:
         if rec.task.cancelled():
             return ""
         failed = rec.task.exception()
@@ -730,9 +796,10 @@ class Work:
                      % (len(rows), MAX_BROWSERS_PER_SESSION, DEFAULT_BROWSER_ID)),
         }
 
-    async def status(self, role: str) -> str:
+    async def status(self, role: str) -> Answer:
         """Who this browser is - identity, exit, profile - and the page it is
-        on. Starts nothing; not open, or gone, is the sentence."""
+        on, and its typing as data (`TypingAnswer`). Starts nothing; not open,
+        or gone, is the sentence."""
         session = self.session(role)
         launched = self._launched[role]
         try:
@@ -748,14 +815,18 @@ class Work:
         except Exception:
             # Any other failure is the page being difficult, not the browser
             # being gone: the identity is still worth reporting.
-            return (plan.describe(launched) + " page: the page is unreadable."
-                    + self.typing_status(role))
-        here = next((r for r in rows if r["active"]), rows[0] if rows else None)
-        where = (here["url"] or "blank") if here else "no page open yet"
-        # ⛔ COUNTED, AND NOT BLAMED ON ANYBODY. A caller cannot make, choose
-        # or close a page, so the honest report of a second one is that it is
-        # there - not who opened it: a confident wrong cause is the defect this
-        # project removed from `navigate`.
-        if len(rows) > 1:
-            where += " (%d other pages are open in this browser)" % (len(rows) - 1)
-        return plan.describe(launched) + " page: %s." % where + self.typing_status(role)
+            rows = None
+        typing_said, typing = await self.typing_report(role)
+        if rows is None:
+            where = "the page is unreadable"
+        else:
+            here = next((r for r in rows if r["active"]), rows[0] if rows else None)
+            where = (here["url"] or "blank") if here else "no page open yet"
+            # ⛔ COUNTED, AND NOT BLAMED ON ANYBODY. A caller cannot make, choose
+            # or close a page, so the honest report of a second one is that it is
+            # there - not who opened it: a confident wrong cause is the defect this
+            # project removed from `navigate`.
+            if len(rows) > 1:
+                where += " (%d other pages are open in this browser)" % (len(rows) - 1)
+        return Answer(plan.describe(launched) + " page: %s." % where + typing_said,
+                      TypingAnswer(typing=typing))

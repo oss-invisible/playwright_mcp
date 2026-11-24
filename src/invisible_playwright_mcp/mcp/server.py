@@ -53,7 +53,7 @@ from typing import Annotated, Literal, Mapping, Optional
 
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
@@ -61,6 +61,7 @@ from . import __version__, actions, network, plan, store
 from .. import env as environment
 from ..engine import Engine
 from ..quiet import swallow
+from .state import OpenAnswer, TypingAnswer, said
 from .work import DEFAULT_BROWSER_ID, Work
 # Reached by tests as `server.<name>`; the tools themselves no longer
 # read them, because the piece of work answers with them.
@@ -383,25 +384,25 @@ Browser = (
 
 @mcp.tool(annotations=_says("Open a browser", destructive=True, open_world=False))
 async def browser_open(browser: Browser = None, seed: int | None = None,
-                       proxy: str | None = None, profile: str | None = None) -> str:
+                       proxy: str | None = None,
+                       profile: str | None = None) -> Annotated[CallToolResult, OpenAnswer]:
     """Open `main` or `support`, or reopen one as somebody else.
 
     `support` is yours to manage: open it when the task needs a second
     identity, and close it with browser_close as soon as the task no longer
     needs it, before you answer. It is not saved.
 
-    Called on a browser that is already up, this REOPENS it with the settings
-    given, and what it held is gone.
+    On a browser already up, this REOPENS it with the settings given; what it
+    held is gone. Data too: `opened`, `cause` (output schema).
 
     seed     the identity; same seed, same fingerprint. Left out, one is drawn.
     profile  a directory keeping cookies, logins and the seed between opens;
-             "" means none. It keeps the SEED too, so a login does not come
-             back on different hardware every visit.
+             "" means none. It keeps the SEED too, so a login does not return
+             on different hardware.
     proxy    the exit, `http://user:pass@host:port` or `socks5://host:port`;
              "" means this machine's own address; left out for `support`, it
              shares the exit `main` has. A profile does NOT pin its exit, and
-             a login arriving from a new country is as visible as one arriving
-             on new hardware.
+             a login from a new country is as visible as one on new hardware.
     """
     # ⛔ THE DESCRIPTION ABOVE IS WHAT THE MODEL READS, AND IT IS CUT AT 1024
     # CHARACTERS BY THE API. The version before this one was 1996: the model
@@ -416,8 +417,14 @@ async def browser_open(browser: Browser = None, seed: int | None = None,
     # and left in this comment where no model would ever read them. A repeated
     # sentence is not free here; it is spent out of the same 1024 characters
     # as the rules that only this tool can state.
-    return await work.open(browser or DEFAULT_BROWSER_ID, seed=seed,
-                           proxy=proxy, profile=profile)
+    #
+    # ⛔ AND THE ANSWER ALSO CARRIES `opened` AND `cause` AS DATA, in the
+    # result's structured content (`state.OpenAnswer`), so a client does not
+    # match this server's sentences to know why a browser did not open. The
+    # causes are described in the output schema, which costs this description
+    # nothing.
+    return await said(work.open(browser or DEFAULT_BROWSER_ID, seed=seed,
+                                proxy=proxy, profile=profile), tool="browser_open")
 
 
 @mcp.tool(annotations=_says("Close a browser", destructive=True, open_world=False))
@@ -461,7 +468,7 @@ async def browser_list() -> str:
 # --- who is browsing ---------------------------------------------------------
 
 @mcp.tool(annotations=_says("Who is browsing", read_only=True, open_world=False))
-async def browser_status(browser: Browser = None) -> str:
+async def browser_status(browser: Browser = None) -> Annotated[CallToolResult, TypingAnswer]:
     """Who is browsing right now: the identity, the exit, the profile and the page.
 
     Ask whenever you need to know which person the browser currently is, or
@@ -471,8 +478,12 @@ async def browser_status(browser: Browser = None) -> str:
 
     It starts nothing: a browser that is not open, or gone, is answered with
     the sentence that says which.
+
+    Also answers data: `typing` {state idle|typing|finished|stopped, selector,
+    done, total, kept}. It is read-only: a finished typing stays `finished`
+    until the next action on that browser.
     """
-    return await work.status(browser or DEFAULT_BROWSER_ID)
+    return await said(work.status(browser or DEFAULT_BROWSER_ID), tool="browser_status")
 
 
 @mcp.tool(annotations=_says("Read captured network traffic", read_only=True, open_world=False))
@@ -727,7 +738,7 @@ async def browser_drag(strokes: list[list[list[float]]],
 
 @mcp.tool(annotations=_says("Type into a field", destructive=True))
 async def browser_type(selector: str, text: str, browser: Browser = None,
-                       frame: FrameChain = None) -> str:
+                       frame: FrameChain = None) -> Annotated[CallToolResult, TypingAnswer]:
     """Type into a field, replacing what it holds, key by key at a human pace.
 
     The answer says what the field kept: all of it, a maxlength's cut, the
@@ -735,9 +746,13 @@ async def browser_type(selector: str, text: str, browser: Browser = None,
     the page spreads over several. Nothing is retyped on its own. Text too long
     to finish within one answer goes on in the background; until it ends,
     actions on that browser are refused with its progress, and reads work.
-    Inside an iframe, pass the snapshot's `frame` too."""
-    return await work.typing(actions.type_text, selector, text, role=browser,
-                             **({"frame": frame} if frame is not None else {}))
+    Inside an iframe, pass the snapshot's `frame` too.
+
+    Also answers data: `typing` {state, selector, done, total, kept}, the same
+    as browser_status, in the answer and in that refusal."""
+    return await said(work.typing(actions.type_text, selector, text, role=browser,
+                                  **({"frame": frame} if frame is not None else {})),
+                      tool="browser_type")
 
 
 @mcp.tool(annotations=_says("Choose a dropdown option", destructive=True))

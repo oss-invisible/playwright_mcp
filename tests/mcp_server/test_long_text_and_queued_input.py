@@ -25,6 +25,7 @@ import time
 
 import pytest
 
+from invisible_playwright_mcp.link import answer_of, text_of
 from invisible_playwright_mcp.mcp import actions, server, work as work_module
 from invisible_playwright_mcp.mcp.work import Work
 
@@ -128,7 +129,7 @@ async def test_a_script_waits_behind_input_like_an_action(spans):
 async def test_a_script_is_refused_while_a_long_typing_goes_on(slow_typing):
     """A script during a background typing is refused with how far it has got,
     as any action is; a snapshot is still answered."""
-    first = await server.browser_type("#t", "x" * 50)
+    first = text_of(await server.browser_type("#t", "x" * 50))
     assert "still typing" in first
     with pytest.raises(RuntimeError, match="still typing"):
         await server.browser_evaluate("document.activeElement.id")
@@ -151,15 +152,15 @@ def slow_typing(spans, monkeypatch):
 
 
 async def test_a_typing_that_outlasts_its_answer_goes_on_and_says_so(slow_typing):
-    said = await server.browser_type("#msg", "y" * 2000)
+    said = text_of(await server.browser_type("#msg", "y" * 2000))
     assert said.startswith("still typing into #msg: 2000 characters"), said
 
     # Actions are refused, not queued: a click left waiting would outlive its
     # own call. Reads still answer.
     with pytest.raises(RuntimeError, match="still typing into #msg"):
         await server.browser_click("#send")
-    with pytest.raises(RuntimeError, match="still typing"):
-        await server.browser_type("#other", "z")
+    refused, failed = answer_of(await server.browser_type("#other", "z"))
+    assert failed and "still typing" in refused, refused
     assert await server.browser_snapshot() == "done"
     assert "still going on in the background, into #msg" in await server.work.status("main")
 
@@ -180,7 +181,7 @@ async def test_a_background_typing_that_fails_is_said_by_the_next_action(spans, 
         raise RuntimeError("the page went away")
 
     monkeypatch.setattr(actions, "type_text", type_text)
-    assert (await server.browser_type("#msg", "y" * 500)).startswith("still typing")
+    assert text_of(await server.browser_type("#msg", "y" * 500)).startswith("still typing")
     await asyncio.sleep(0.3)
     after = await server.browser_press_key("Enter")
     assert after.startswith("(the typing into #msg that went on in the background "
@@ -197,7 +198,7 @@ async def test_closing_the_browser_stops_a_background_typing(slow_typing):
 
 
 async def test_a_typing_that_finishes_in_time_answers_as_usual(spans):
-    assert await server.browser_type("#t", "x") == "done"
+    assert text_of(await server.browser_type("#t", "x")) == "done"
     assert server.work._typing == {}
 
 

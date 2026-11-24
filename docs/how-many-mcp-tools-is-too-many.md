@@ -21,10 +21,10 @@ than a characters-per-token rule of thumb:
 | | |
 |---|---|
 | Tools exposed | **20** |
-| Description characters | 11,248 |
-| Tokens, descriptions alone | 2,585 |
-| Tokens, complete definitions resent every turn | **4,632** |
-| Median tokens per tool | 208 |
+| Description characters | 11,565 |
+| Tokens, descriptions alone | 2,671 |
+| Tokens, complete definitions resent every turn | **4,718** |
+| Median tokens per tool | 211 |
 
 A forty-turn browsing session therefore spends on the order of **185,000
 tokens** restating what the tools are, before counting a single page of content
@@ -91,7 +91,7 @@ measurements, including the one that reverses on a long page.
 **Is there a hard limit on MCP tools?** Not in the protocol. Clients impose
 their own caps, and the model's ability to choose degrades before any cap.
 
-**How much context do MCP tools use?** Ours: 4,632 tokens on every turn, for 20
+**How much context do MCP tools use?** Ours: 4,718 tokens on every turn, for 20
 tools. Yours scales with description length and argument schemas, not just
 count.
 
@@ -113,7 +113,7 @@ of four decisions is exactly this budget.
 
 ## Sources
 
-- This project's own MCP server, enumerated through its tool registry on 2026-11-24: 20 tools, 11,248 characters of description, 4,632 tokens for the complete definitions, median 208 tokens per tool. Tokens counted with `tiktoken` (`o200k_base`), not estimated from character count.
+- This project's own MCP server, enumerated through its tool registry on 2026-11-24: 20 tools, 11,565 characters of description, 4,718 tokens for the complete definitions, median 211 tokens per tool. Tokens counted with `tiktoken` (`o200k_base`), not estimated from character count.
 - [The Model Context Protocol documentation](https://modelcontextprotocol.io/docs/learn/server-concepts), retrieved 2026-09-11, for `tools/list` and the schema-defined shape of a tool.
 
 ---

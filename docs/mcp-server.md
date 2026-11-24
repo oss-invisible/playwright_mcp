@@ -307,6 +307,57 @@ was already running untouched, and every later tool repeats the refusal until
 `browser_open` succeeds. It does not quietly start a browser without the exit
 that was asked for.
 
+### State as data
+
+Three tools say their state as data as well as in a sentence, so a program
+driving the server never has to look for words. The sentence is still the text
+of the result, unchanged, which is all a model reads. The data is the result's
+`structuredContent`, declared in each tool's `outputSchema` (MCP 2025-06-18),
+and it is present on an error result too: with the `mcp` Python client it is
+`result.structuredContent`, next to `result.isError`. It needs `mcp` 1.19 or
+later, the SDK release that lets a tool return both.
+
+`browser_status` and `browser_type` carry `typing`, with every key always
+present and null where it is not known:
+
+```json
+{"typing": {"state": "typing", "selector": "#message", "done": 812, "total": 2000, "kept": null}}
+```
+
+`state` is `idle` (nothing to report), `typing` (a text longer than one answer
+may wait is still being typed in the background), `finished` (it ended, and
+`kept` is how many characters the field held afterwards) or `stopped` (it ended
+with an error, or the browser was closed under it). `done` is read from the
+field while it types. `browser_type` answers with it, and a `browser_type` that
+is refused because a typing is going on is an error result carrying the same
+shape. Any other tool refused in the same way answers in words only, and
+`browser_status` is where to ask.
+
+A finished typing stays `finished` for as long as you only look: `browser_status`
+does not retire it. The next action on that browser does, and says how it ended
+once, in words.
+
+`browser_open` carries `opened` and, when it is not, a `cause`:
+
+```json
+{"opened": false, "cause": "missing_libraries"}
+```
+
+| `cause` | Meaning | Result |
+|---|---|---|
+| `profile_locked` | another Firefox holds the profile directory; close it or use another one | error |
+| `no_display` | there is no display to draw on: no X server, no `DISPLAY`, no desktop | error |
+| `missing_libraries` | a system library the engine needs is not installed | error |
+| `sandbox_blocked` | the operating system or a host sandbox refused to start the engine | error |
+| `launch_failed` | the engine started and failed, or never answered; the sentence has its output | error |
+| `downloading` | the engine is being downloaded or verified; call `browser_open` again shortly | answer |
+| `download_failed` | the engine download failed; call `browser_open` again to retry it | answer |
+
+The cause is read where the launch fails, from the exception and from what
+Firefox printed, so it does not depend on this page's wording. A refusal of the
+arguments (a seed that contradicts a profile, say) has no cause: it is an error
+with text only.
+
 ### Reading the page
 
 | Tool | Arguments | What it returns |

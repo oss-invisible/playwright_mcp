@@ -98,6 +98,14 @@ class Engine:
         take a network round trip, not a transfer. True when it has."""
         return self._settled.wait(timeout)
 
+    def cause(self) -> str:
+        """Why `browser_open` cannot open a browser yet, as data: `download_failed`
+        when the download failed, and `downloading` for every other state a
+        download is in before it is on disk (starting, downloading, verifying,
+        extracting). `describe` says the same in words, and the two are
+        decided from the same `state`."""
+        return "download_failed" if self.state == "failed" else "downloading"
+
     def describe(self) -> str:
         """One sentence for a tool answer: where the engine is and what to do,
         which is always "call browser_open again" and never a command."""

@@ -18,8 +18,8 @@ model's context on **every turn**. A browsing session is dozens of turns. This
 is the single largest avoidable cost in the category.
 
 Measured on our own server, because we can read our own source and nobody
-publishes this number: **20 tools whose complete definitions are 4,632 tokens,
-sent again on every single turn** (11,248 characters of description plus each
+publishes this number: **20 tools whose complete definitions are 4,718 tokens,
+sent again on every single turn** (11,565 characters of description plus each
 tool's argument schema, enumerated from the server's own registry on 2026-11-24
 and counted with a tokenizer). A
 forty-turn session therefore spends on the order of 185,000 tokens restating
